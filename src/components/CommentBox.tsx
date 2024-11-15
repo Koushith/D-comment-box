@@ -1,11 +1,12 @@
-import { useState, FormEvent } from 'react';
-import type { Comment } from '../App';
+import { useState, FormEvent, useRef, useEffect } from 'react';
+import type { Comment, User, Like } from '../App';
 
 interface CommentBoxProps {
-  userAvatar: string;
+  currentUser: User;
   comments: Comment[];
   onSubmit: (comment: string) => void;
   onReplySubmit: (parentId: string, reply: string, level: number) => void;
+  onLikeClick: (commentId: string, isLike: boolean) => void;
 }
 
 const formatTimestamp = (date: Date) => {
@@ -33,11 +34,24 @@ const formatTimestamp = (date: Date) => {
   }
 };
 
-export function CommentBox({ userAvatar, comments, onSubmit, onReplySubmit }: CommentBoxProps) {
+export function CommentBox({ currentUser, comments, onSubmit, onReplySubmit, onLikeClick }: CommentBoxProps) {
   const [comment, setComment] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<{ [key: string]: string }>({});
+  const [showLikesPopup, setShowLikesPopup] = useState<string | null>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(event.target as Node)) {
+        setShowLikesPopup(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -59,10 +73,8 @@ export function CommentBox({ userAvatar, comments, onSubmit, onReplySubmit }: Co
   };
 
   const CommentItem = ({ comment, isReply = false }: { comment: Comment; isReply?: boolean }) => {
-    const indentLevel = isReply ? 12 : 0;
-
     return (
-      <div className={`flex gap-3 ${isReply ? `ml-${indentLevel}` : ''} mt-4 group`}>
+      <div className={`flex gap-3 ${isReply ? 'ml-[52px]' : ''} ${isReply ? 'mt-3' : 'mt-4'}`}>
         <img src={comment.avatar} alt={`${comment.author}'s avatar`} className="w-8 h-8 rounded-full flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2">
@@ -73,26 +85,7 @@ export function CommentBox({ userAvatar, comments, onSubmit, onReplySubmit }: Co
 
           <div className="flex items-center gap-4 mt-1">
             <div className="flex items-center gap-2">
-              <button className="p-2 hover:bg-[#f2f2f2] rounded-full">
-                <svg className="w-5 h-5 text-[#606060]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"
-                  />
-                </svg>
-              </button>
-              <button className="p-2 hover:bg-[#f2f2f2] rounded-full">
-                <svg className="w-5 h-5 text-[#606060]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v2a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211-1.412.608-2.006L17 13V4m-7 10h2"
-                  />
-                </svg>
-              </button>
+              <LikeButton comment={comment} />
             </div>
             <button
               onClick={() => setReplyingTo(comment.id)}
@@ -102,11 +95,27 @@ export function CommentBox({ userAvatar, comments, onSubmit, onReplySubmit }: Co
             </button>
           </div>
 
+          {comment.replies && comment.replies.length > 0 && (
+            <div className="mt-2">
+              <button className="flex items-center gap-2 text-[14px] font-medium text-[#065fd4] hover:bg-[#def1ff] px-3 py-1 rounded-full">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 8.5l6 6H6l6-6z" />
+                </svg>
+                {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'}
+              </button>
+              <div className="mt-1 border-l border-[#eee] pl-[2px]">
+                {comment.replies.map((reply) => (
+                  <CommentItem key={reply.id} comment={reply} isReply={true} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {replyingTo === comment.id && (
-            <div className="mt-3">
+            <div className="mt-3 ml-[-40px]">
               <form onSubmit={(e) => handleReplySubmit(e, comment.id, comment.level)} className="flex-1">
                 <div className="flex gap-3">
-                  <img src={userAvatar} alt="Your avatar" className="w-8 h-8 rounded-full flex-shrink-0" />
+                  <img src={currentUser.avatar} alt="Your avatar" className="w-8 h-8 rounded-full flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <textarea
                       value={replyText[comment.id] || ''}
@@ -145,23 +154,82 @@ export function CommentBox({ userAvatar, comments, onSubmit, onReplySubmit }: Co
               </form>
             </div>
           )}
-
-          {comment.replies && comment.replies.length > 0 && (
-            <div className="mt-4">
-              <button className="flex items-center gap-2 text-[14px] font-medium text-[#065fd4] hover:bg-[#def1ff] px-3 py-1 rounded-full">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 8.5l6 6H6l6-6z" />
-                </svg>
-                {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'}
-              </button>
-              <div className="mt-1">
-                {comment.replies.map((reply) => (
-                  <CommentItem key={reply.id} comment={reply} isReply={true} />
-                ))}
-              </div>
-            </div>
-          )}
         </div>
+      </div>
+    );
+  };
+
+  const LikeButton = ({ comment }: { comment: Comment }) => {
+    return (
+      <div className="relative flex items-center gap-2">
+        <button
+          onClick={() => onLikeClick(comment.id, true)}
+          className="p-2 hover:bg-[#f2f2f2] rounded-full group flex items-center gap-1"
+        >
+          <svg
+            className={`w-5 h-5 ${comment.isLiked ? 'text-[#065fd4]' : 'text-[#606060]'}`}
+            fill={comment.isLiked ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"
+            />
+          </svg>
+          {comment.likes.length > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowLikesPopup(comment.id);
+              }}
+              className={`text-[13px] ${comment.isLiked ? 'text-[#065fd4]' : 'text-[#606060]'} hover:underline`}
+            >
+              {comment.likes.length}
+            </button>
+          )}
+        </button>
+        <button onClick={() => onLikeClick(comment.id, false)} className="p-2 hover:bg-[#f2f2f2] rounded-full">
+          <svg
+            className={`w-5 h-5 ${comment.isDisliked ? 'text-[#065fd4]' : 'text-[#606060]'}`}
+            fill={comment.isDisliked ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v2a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211-1.412.608-2.006L17 13V4m-7 10h2"
+            />
+          </svg>
+        </button>
+
+        {showLikesPopup === comment.id && (
+          <div
+            ref={popupRef}
+            className="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-lg border border-gray-200 p-3 min-w-[200px] z-10"
+          >
+            <h3 className="text-[14px] font-medium mb-2">Liked by</h3>
+            <div className="max-h-[300px] overflow-y-auto">
+              {comment.likes.map((like) => (
+                <div key={like.userId} className="flex items-center gap-2 py-2">
+                  <img
+                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${like.userId}`}
+                    alt="User avatar"
+                    className="w-6 h-6 rounded-full"
+                  />
+                  <div>
+                    <p className="text-[13px] font-medium">{like.userId}</p>
+                    <p className="text-[12px] text-gray-500">{formatTimestamp(like.timestamp)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -171,7 +239,7 @@ export function CommentBox({ userAvatar, comments, onSubmit, onReplySubmit }: Co
       <div className="mb-8">
         <h2 className="text-[16px] font-medium mb-6">{comments.length} Comments</h2>
         <div className="flex gap-3">
-          <img src={userAvatar} alt="Your avatar" className="w-8 h-8 rounded-full flex-shrink-0" />
+          <img src={currentUser.avatar} alt="Your avatar" className="w-8 h-8 rounded-full flex-shrink-0" />
           <form onSubmit={handleSubmit} className="flex-1">
             <div className="relative w-full">
               <textarea
